@@ -174,8 +174,8 @@ func main() {
 
 	cfg := Config{
 		MaxDepth:   3,
-		MaxResults: 1000, //1000
-		MaxErrors:  500,  //500
+		MaxResults: 10, //1000
+		MaxErrors:  5,  //500
 		Url:        "https://telegram.org",
 		Timeout:    10,
 	}
@@ -185,7 +185,7 @@ func main() {
 	r = NewRequester(time.Duration(cfg.Timeout) * time.Second)
 	cr = NewCrawler(r)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(time.Second*8)) //общий таймаут
 
 	go cr.Scan(ctx, cfg)                   //Запускаем краулер в отдельной рутине
 	go processResult(ctx, cancel, cr, cfg) //Обрабатываем результаты в отдельной рутине
