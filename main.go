@@ -66,7 +66,7 @@ func NewRequester(timeout time.Duration) requester {
 
 func (r requester) Get(ctx context.Context, url string) (Page, error) {
 	select {
-	case <-ctx.Done():
+	case <-ctx.Done(): //проверка на закрытие контекста.
 		return nil, nil
 	default:
 		cl := &http.Client{
@@ -92,18 +92,19 @@ func (r requester) Get(ctx context.Context, url string) (Page, error) {
 
 //Crawler - интерфейс (контракт) краулера
 type Crawler interface {
-	Scan(ctx context.Context, url string, depth int)
+	Scan(ctx context.Context, cfg Config)
 	ChanResult() <-chan CrawlResult
 }
 
 type crawler struct {
-	r       Requester
-	res     chan CrawlResult
-	visited map[string]struct{}
+	r       Requester           //
+	res     chan CrawlResult    //структура - либо ошибка либо данные по страничке.
+	visited map[string]struct{} //посещенные страницы.
 	mu      sync.RWMutex
 }
 
 func NewCrawler(r Requester) *crawler {
+
 	return &crawler{
 		r:       r,
 		res:     make(chan CrawlResult),
@@ -112,16 +113,25 @@ func NewCrawler(r Requester) *crawler {
 	}
 }
 
-func (c *crawler) Scan(ctx context.Context, url string, depth int) {
+func (c *crawler) Scan(ctx context.Context, cfg Config) {
+
+	var url, depth, dopdepth = cfg.Url, cfg.MaxDepth, cfg.DopDepth
+
+	if dopdepth > 0 {
+		depth += dopdepth
+	}
+
 	if depth <= 0 { //Проверяем то, что есть запас по глубине
 		return
 	}
+
 	c.mu.RLock()
 	_, ok := c.visited[url] //Проверяем, что мы ещё не смотрели эту страницу
 	c.mu.RUnlock()
 	if ok {
 		return
 	}
+
 	select {
 	case <-ctx.Done(): //Если контекст завершен - прекращаем выполнение
 		return
@@ -138,8 +148,11 @@ func (c *crawler) Scan(ctx context.Context, url string, depth int) {
 			Title: page.GetTitle(),
 			Url:   url,
 		}
+
+		cfg.MaxDepth -= 1
 		for _, link := range page.GetLinks() {
-			go c.Scan(ctx, link, depth-1) //На все полученные ссылки запускаем новую рутину сборки
+			cfg.Url = link
+			go c.Scan(ctx, cfg) //На все полученные ссылки запускаем новую рутину сборки
 		}
 	}
 }
@@ -150,6 +163,7 @@ func (c *crawler) ChanResult() <-chan CrawlResult {
 
 //Config - структура для конфигурации
 type Config struct {
+	DopDepth   int
 	MaxDepth   int
 	MaxResults int
 	MaxErrors  int
@@ -161,8 +175,8 @@ func main() {
 
 	cfg := Config{
 		MaxDepth:   3,
-		MaxResults: 10,
-		MaxErrors:  5,
+		MaxResults: 1000, //1000
+		MaxErrors:  500,  //500
 		Url:        "https://telegram.org",
 		Timeout:    10,
 	}
@@ -173,23 +187,34 @@ func main() {
 	cr = NewCrawler(r)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go cr.Scan(ctx, cfg.Url, cfg.MaxDepth) //Запускаем краулер в отдельной рутине
+
+	go cr.Scan(ctx, cfg) //Запускаем краулер в отдельной рутине
+
 	go processResult(ctx, cancel, cr, cfg) //Обрабатываем результаты в отдельной рутине
 
-	sigCh := make(chan os.Signal)        //Создаем канал для приема сигналов
-	signal.Notify(sigCh, syscall.SIGINT) //Подписываемся на сигнал SIGINT
+	sigCh := make(chan os.Signal, 1)                      //Создаем канал для приема сигналов
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGUSR1) //Подписываемся на сигнал SIGINT
+
 	for {
 		select {
 		case <-ctx.Done(): //Если всё завершили - выходим
 			return
-		case <-sigCh:
-			cancel() //Если пришёл сигнал SigInt - завершаем контекст
+		case s := <-sigCh:
+			switch s {
+			case syscall.SIGINT:
+				cancel()
+			case syscall.SIGUSR1: //здесь нужно увеличить глубину и при этом нужно использовать - atomic. Т.е не забыть залочить.
+				cfg.DopDepth += 2
+			}
 		}
 	}
+
 }
 
 func processResult(ctx context.Context, cancel func(), cr Crawler, cfg Config) {
+
 	var maxResult, maxErrors = cfg.MaxResults, cfg.MaxErrors
+
 	for {
 		select {
 		case <-ctx.Done():
