@@ -148,7 +148,7 @@ func (c *crawler) Scan(ctx context.Context, cfg Config) {
 			Url:   cfg.Url,
 		}
 
-		atomic.AddInt64(&cfg.MaxDepth, -1) //безопасно увеличиваем глубину MaxDepth на значение dopdepth
+		atomic.AddInt64(&cfg.MaxDepth, -1) //? безопасно уменьшаем глубину MaxDepth -1
 		for _, link := range page.GetLinks() {
 			cfg.Url = link
 			go c.Scan(ctx, cfg) //На все полученные ссылки запускаем новую рутину сборки
