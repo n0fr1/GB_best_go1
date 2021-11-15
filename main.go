@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -115,18 +116,16 @@ func NewCrawler(r Requester) *crawler {
 
 func (c *crawler) Scan(ctx context.Context, cfg Config) {
 
-	var url, depth, dopdepth = cfg.Url, cfg.MaxDepth, cfg.DopDepth
-
-	if dopdepth > 0 {
-		depth += dopdepth
+	if cfg.DopDepth > 0 {
+		atomic.AddInt64(&cfg.MaxDepth, cfg.DopDepth) //безопасно увеличиваем глубину MaxDepth на значение dopdepth
 	}
 
-	if depth <= 0 { //Проверяем то, что есть запас по глубине
+	if cfg.MaxDepth <= 0 { //Проверяем то, что есть запас по глубине
 		return
 	}
 
 	c.mu.RLock()
-	_, ok := c.visited[url] //Проверяем, что мы ещё не смотрели эту страницу
+	_, ok := c.visited[cfg.Url] //Проверяем, что мы ещё не смотрели эту страницу
 	c.mu.RUnlock()
 	if ok {
 		return
@@ -136,20 +135,20 @@ func (c *crawler) Scan(ctx context.Context, cfg Config) {
 	case <-ctx.Done(): //Если контекст завершен - прекращаем выполнение
 		return
 	default:
-		page, err := c.r.Get(ctx, url) //Запрашиваем страницу через Requester
+		page, err := c.r.Get(ctx, cfg.Url) //Запрашиваем страницу через Requester
 		if err != nil {
 			c.res <- CrawlResult{Err: err} //Записываем ошибку в канал
 			return
 		}
 		c.mu.Lock()
-		c.visited[url] = struct{}{} //Помечаем страницу просмотренной
+		c.visited[cfg.Url] = struct{}{} //Помечаем страницу просмотренной
 		c.mu.Unlock()
 		c.res <- CrawlResult{ //Отправляем результаты в канал
 			Title: page.GetTitle(),
-			Url:   url,
+			Url:   cfg.Url,
 		}
 
-		cfg.MaxDepth -= 1
+		atomic.AddInt64(&cfg.MaxDepth, -1) //безопасно увеличиваем глубину MaxDepth на значение dopdepth
 		for _, link := range page.GetLinks() {
 			cfg.Url = link
 			go c.Scan(ctx, cfg) //На все полученные ссылки запускаем новую рутину сборки
@@ -163,8 +162,8 @@ func (c *crawler) ChanResult() <-chan CrawlResult {
 
 //Config - структура для конфигурации
 type Config struct {
-	DopDepth   int
-	MaxDepth   int
+	DopDepth   int64 //добавляем для увеличения глубины. Меняем на int64 - чтобы можно было использовать в atomic
+	MaxDepth   int64
 	MaxResults int
 	MaxErrors  int
 	Url        string
@@ -188,8 +187,7 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	go cr.Scan(ctx, cfg) //Запускаем краулер в отдельной рутине
-
+	go cr.Scan(ctx, cfg)                   //Запускаем краулер в отдельной рутине
 	go processResult(ctx, cancel, cr, cfg) //Обрабатываем результаты в отдельной рутине
 
 	sigCh := make(chan os.Signal, 1)                      //Создаем канал для приема сигналов
@@ -203,8 +201,8 @@ func main() {
 			switch s {
 			case syscall.SIGINT:
 				cancel()
-			case syscall.SIGUSR1: //здесь нужно увеличить глубину и при этом нужно использовать - atomic. Т.е не забыть залочить.
-				cfg.DopDepth += 2
+			case syscall.SIGUSR1:
+				cfg.DopDepth += 2 //здесь при передаче сигнала - увеличиваем глубину
 			}
 		}
 	}
