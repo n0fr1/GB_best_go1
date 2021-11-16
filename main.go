@@ -66,6 +66,7 @@ func NewRequester(timeout time.Duration) requester {
 }
 
 func (r requester) Get(ctx context.Context, url string) (Page, error) {
+
 	select {
 	case <-ctx.Done(): //проверка на закрытие контекста.
 		return nil, nil
@@ -88,7 +89,8 @@ func (r requester) Get(ctx context.Context, url string) (Page, error) {
 		}
 		return page, nil
 	}
-	return nil, nil
+
+	//return nil, nil
 }
 
 //Crawler - интерфейс (контракт) краулера
@@ -185,7 +187,7 @@ func main() {
 	r = NewRequester(time.Duration(cfg.Timeout) * time.Second)
 	cr = NewCrawler(r)
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(time.Second*8)) //общий таймаут
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(cfg.Timeout)) //общий таймаут
 
 	go cr.Scan(ctx, cfg)                   //Запускаем краулер в отдельной рутине
 	go processResult(ctx, cancel, cr, cfg) //Обрабатываем результаты в отдельной рутине
