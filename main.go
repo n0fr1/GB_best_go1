@@ -204,7 +204,7 @@ func main() {
 			case syscall.SIGINT:
 				cancel()
 			case syscall.SIGUSR1:
-				cfg.DopDepth += 2 //здесь при передаче сигнала - увеличиваем глубину
+				atomic.AddInt64(&cfg.DopDepth, 2) // безопасно увеличиваем глубину по сигналу
 			}
 		}
 	}
