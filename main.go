@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"io"
-	"log"
+
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	log "github.com/sirupsen/logrus"
 )
 
 type CrawlResult struct {
@@ -170,16 +171,25 @@ type Config struct {
 	MaxErrors  int
 	Url        string
 	Timeout    int //in seconds
+	Logging    *log.Entry
 }
 
 func main() {
 
+	log.SetFormatter(&log.JSONFormatter{})
+	standardFields := log.Fields{
+		"host": "srv42",
+	}
+
+	crlog := log.WithFields(standardFields)
+
 	cfg := Config{
 		MaxDepth:   3,
-		MaxResults: 10, //1000
-		MaxErrors:  5,  //500
+		MaxResults: 1000, //1000
+		MaxErrors:  500,  //500
 		Url:        "https://telegram.org",
 		Timeout:    10,
+		Logging:    crlog,
 	}
 	var cr Crawler
 	var r Requester
@@ -198,13 +208,16 @@ func main() {
 	for {
 		select {
 		case <-ctx.Done(): //Если всё завершили - выходим
+			cfg.Logging.WithFields(log.Fields{"uid": 01}).Info("crawler finished")
 			return
 		case s := <-sigCh:
 			switch s {
 			case syscall.SIGINT:
+				cfg.Logging.WithFields(log.Fields{"uid": 02}).Warn("crawler was interrupted")
 				cancel()
 			case syscall.SIGUSR1:
-				cfg.DopDepth += 2 //здесь при передаче сигнала - увеличиваем глубину
+				cfg.Logging.WithFields(log.Fields{"uid": 03}).Warn("depth was increased +2")
+				atomic.AddInt64(&cfg.DopDepth, 2) //безопасно увеличиваем глубину по сигналу
 			}
 		}
 	}
@@ -222,14 +235,16 @@ func processResult(ctx context.Context, cancel func(), cr Crawler, cfg Config) {
 		case msg := <-cr.ChanResult():
 			if msg.Err != nil {
 				maxErrors--
-				log.Printf("crawler result return err: %s\n", msg.Err.Error())
+				cfg.Logging.WithFields(log.Fields{"uid": 04}).Error("crawler result return err: %s\n", msg.Err.Error())
+				//log.Printf("crawler result return err: %s\n", msg.Err.Error()) - разобраться, как правильно передавать сообщение !!!
 				if maxErrors <= 0 {
 					cancel()
 					return
 				}
 			} else {
 				maxResult--
-				log.Printf("crawler result: [url: %s] Title: %s\n", msg.Url, msg.Title)
+				cfg.Logging.WithFields(log.Fields{"uid": 05}).Info("crawler result: [url: %s] Title: %s\n", msg.Url, msg.Title)
+				//log.Printf("crawler result: [url: %s] Title: %s\n", msg.Url, msg.Title)
 				if maxResult <= 0 {
 					cancel()
 					return
