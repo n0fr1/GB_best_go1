@@ -95,7 +95,7 @@ func (r requester) Get(ctx context.Context, url string) (Page, error) {
 
 //Crawler - интерфейс (контракт) краулера
 type Crawler interface {
-	Scan(ctx context.Context, cfg Config)
+	Scan(ctx context.Context, cfg *Config)
 	ChanResult() <-chan CrawlResult
 }
 
@@ -116,7 +116,7 @@ func NewCrawler(r Requester) *crawler {
 	}
 }
 
-func (c *crawler) Scan(ctx context.Context, cfg Config) {
+func (c *crawler) Scan(ctx context.Context, cfg *Config) {
 
 	if cfg.DopDepth > 0 {
 		atomic.AddInt64(&cfg.MaxDepth, cfg.DopDepth) //безопасно увеличиваем глубину MaxDepth на значение dopdepth
@@ -189,7 +189,7 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(cfg.Timeout)) //общий таймаут
 
-	go cr.Scan(ctx, cfg)                   //Запускаем краулер в отдельной рутине
+	go cr.Scan(ctx, &cfg)                  //Запускаем краулер в отдельной рутине
 	go processResult(ctx, cancel, cr, cfg) //Обрабатываем результаты в отдельной рутине
 
 	sigCh := make(chan os.Signal, 1)                      //Создаем канал для приема сигналов
