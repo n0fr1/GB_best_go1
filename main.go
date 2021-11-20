@@ -105,6 +105,7 @@ type crawler struct {
 	res     chan CrawlResult    //структура - либо ошибка либо данные по страничке.
 	visited map[string]struct{} //посещенные страницы.
 	mu      sync.RWMutex
+	logging *log.Entry
 }
 
 func NewCrawler(r Requester) *crawler {
@@ -141,6 +142,7 @@ func (c *crawler) Scan(ctx context.Context, cfg Config) {
 		page, err := c.r.Get(ctx, cfg.Url) //Запрашиваем страницу через Requester
 		if err != nil {
 			c.res <- CrawlResult{Err: err} //Записываем ошибку в канал
+			c.logging.WithFields(log.Fields{"url": cfg.Url}).Error(err.Error())
 			return
 		}
 		c.mu.Lock()
