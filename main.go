@@ -171,15 +171,12 @@ type Config struct {
 	MaxErrors  int
 	Url        string
 	Timeout    int //in seconds
-	Logging    *log.Entry
 }
 
 func main() {
 
 	log.SetFormatter(&log.JSONFormatter{})
-	standardFields := log.Fields{
-		"host": "srv42",
-	}
+	standardFields := log.Fields{}
 
 	crlog := log.WithFields(standardFields)
 
@@ -189,7 +186,6 @@ func main() {
 		MaxErrors:  500,  //500
 		Url:        "https://telegram.org",
 		Timeout:    10,
-		Logging:    crlog,
 	}
 	var cr Crawler
 	var r Requester
@@ -199,8 +195,8 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(cfg.Timeout)) //общий таймаут
 
-	go cr.Scan(ctx, cfg)                   //Запускаем краулер в отдельной рутине
-	go processResult(ctx, cancel, cr, cfg) //Обрабатываем результаты в отдельной рутине
+	go cr.Scan(ctx, cfg)                          //Запускаем краулер в отдельной рутине
+	go processResult(ctx, cancel, cr, cfg, crlog) //Обрабатываем результаты в отдельной рутине
 
 	sigCh := make(chan os.Signal, 1)                      //Создаем канал для приема сигналов
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGUSR1) //Подписываемся на сигнал SIGINT
@@ -208,15 +204,15 @@ func main() {
 	for {
 		select {
 		case <-ctx.Done(): //Если всё завершили - выходим
-			cfg.Logging.WithFields(log.Fields{"uid": 01}).Info("crawler finished")
+			crlog.WithFields(log.Fields{}).Info("crawler finished")
 			return
 		case s := <-sigCh:
 			switch s {
 			case syscall.SIGINT:
-				cfg.Logging.WithFields(log.Fields{"uid": 02}).Warn("crawler was interrupted")
+				crlog.WithFields(log.Fields{"sygnal": syscall.SIGINT}).Warn("crawler was interrupted")
 				cancel()
 			case syscall.SIGUSR1:
-				cfg.Logging.WithFields(log.Fields{"uid": 03}).Warn("depth was increased +2")
+				crlog.WithFields(log.Fields{"sygnal": syscall.SIGUSR1}).Warn("depth was increased +2")
 				atomic.AddInt64(&cfg.DopDepth, 2) //безопасно увеличиваем глубину по сигналу
 			}
 		}
@@ -224,7 +220,7 @@ func main() {
 
 }
 
-func processResult(ctx context.Context, cancel func(), cr Crawler, cfg Config) {
+func processResult(ctx context.Context, cancel func(), cr Crawler, cfg Config, crlog *log.Entry) {
 
 	var maxResult, maxErrors = cfg.MaxResults, cfg.MaxErrors
 
@@ -235,16 +231,16 @@ func processResult(ctx context.Context, cancel func(), cr Crawler, cfg Config) {
 		case msg := <-cr.ChanResult():
 			if msg.Err != nil {
 				maxErrors--
-				cfg.Logging.WithFields(log.Fields{"uid": 04}).Error("crawler result return err: %s\n", msg.Err.Error())
-				//log.Printf("crawler result return err: %s\n", msg.Err.Error()) - разобраться, как правильно передавать сообщение !!!
+				crlog.WithFields(log.Fields{"crawler result": "err"}).Error(msg.Err.Error())
+
 				if maxErrors <= 0 {
 					cancel()
 					return
 				}
 			} else {
 				maxResult--
-				cfg.Logging.WithFields(log.Fields{"uid": 05}).Info("crawler result: [url: %s] Title: %s\n", msg.Url, msg.Title)
-				//log.Printf("crawler result: [url: %s] Title: %s\n", msg.Url, msg.Title)
+				crlog.WithFields(log.Fields{"crawler result": msg.Url}).Info(msg.Title)
+
 				if maxResult <= 0 {
 					cancel()
 					return
