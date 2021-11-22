@@ -120,11 +120,13 @@ func NewCrawler(r Requester) *crawler {
 
 func (c *crawler) Scan(ctx context.Context, url string, depth int64) {
 
+	c.mu.RLock()
 	if c.maxDepth > 0 {
 		if depth >= c.maxDepth {
 			return
 		}
 	}
+	c.mu.RUnlock()
 
 	c.mu.RLock()
 	_, ok := c.visited[url] //Проверяем, что мы ещё не смотрели эту страницу
