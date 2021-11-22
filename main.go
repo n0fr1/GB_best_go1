@@ -90,44 +90,44 @@ func (r requester) Get(ctx context.Context, url string) (Page, error) {
 		return page, nil
 	}
 
-	//return nil, nil
 }
 
 //Crawler - интерфейс (контракт) краулера
 type Crawler interface {
-	Scan(ctx context.Context, cfg *Config)
+	Scan(ctx context.Context, url string, depth int64)
 	ChanResult() <-chan CrawlResult
+	AddDepth(depth int64) //добавляем дополнительный метод для увеличения глубины поиска
 }
 
 type crawler struct {
-	r       Requester           //
-	res     chan CrawlResult    //структура - либо ошибка либо данные по страничке.
-	visited map[string]struct{} //посещенные страницы.
-	mu      sync.RWMutex
+	r        Requester           //
+	res      chan CrawlResult    //структура - либо ошибка либо данные по страничке.
+	visited  map[string]struct{} //посещенные страницы.
+	mu       sync.RWMutex
+	maxDepth int64
 }
 
 func NewCrawler(r Requester) *crawler {
 
 	return &crawler{
-		r:       r,
-		res:     make(chan CrawlResult),
-		visited: make(map[string]struct{}),
-		mu:      sync.RWMutex{},
+		r:        r,
+		res:      make(chan CrawlResult),
+		visited:  make(map[string]struct{}),
+		mu:       sync.RWMutex{},
+		maxDepth: 0,
 	}
 }
 
-func (c *crawler) Scan(ctx context.Context, cfg *Config) {
+func (c *crawler) Scan(ctx context.Context, url string, depth int64) {
 
-	if cfg.DopDepth > 0 {
-		atomic.AddInt64(&cfg.MaxDepth, cfg.DopDepth) //безопасно увеличиваем глубину MaxDepth на значение dopdepth
-	}
-
-	if cfg.MaxDepth <= 0 { //Проверяем то, что есть запас по глубине
-		return
+	if c.maxDepth > 0 {
+		if depth >= c.maxDepth {
+			return
+		}
 	}
 
 	c.mu.RLock()
-	_, ok := c.visited[cfg.Url] //Проверяем, что мы ещё не смотрели эту страницу
+	_, ok := c.visited[url] //Проверяем, что мы ещё не смотрели эту страницу
 	c.mu.RUnlock()
 	if ok {
 		return
@@ -137,23 +137,21 @@ func (c *crawler) Scan(ctx context.Context, cfg *Config) {
 	case <-ctx.Done(): //Если контекст завершен - прекращаем выполнение
 		return
 	default:
-		page, err := c.r.Get(ctx, cfg.Url) //Запрашиваем страницу через Requester
+		page, err := c.r.Get(ctx, url) //Запрашиваем страницу через Requester
 		if err != nil {
 			c.res <- CrawlResult{Err: err} //Записываем ошибку в канал
 			return
 		}
 		c.mu.Lock()
-		c.visited[cfg.Url] = struct{}{} //Помечаем страницу просмотренной
+		c.visited[url] = struct{}{} //Помечаем страницу просмотренной
 		c.mu.Unlock()
 		c.res <- CrawlResult{ //Отправляем результаты в канал
 			Title: page.GetTitle(),
-			Url:   cfg.Url,
+			Url:   url,
 		}
 
-		atomic.AddInt64(&cfg.MaxDepth, -1) //? безопасно уменьшаем глубину MaxDepth -1
 		for _, link := range page.GetLinks() {
-			cfg.Url = link
-			go c.Scan(ctx, cfg) //На все полученные ссылки запускаем новую рутину сборки
+			go c.Scan(ctx, link, depth+1) //На все полученные ссылки запускаем новую рутину сборки
 		}
 	}
 }
@@ -164,8 +162,7 @@ func (c *crawler) ChanResult() <-chan CrawlResult {
 
 //Config - структура для конфигурации
 type Config struct {
-	DopDepth   int64 //добавляем для увеличения глубины. Меняем на int64 - чтобы можно было использовать в atomic
-	MaxDepth   int64
+	Depth      int64
 	MaxResults int
 	MaxErrors  int
 	Url        string
@@ -175,21 +172,22 @@ type Config struct {
 func main() {
 
 	cfg := Config{
-		MaxDepth:   3,
-		MaxResults: 10, //1000
-		MaxErrors:  5,  //500
+		Depth:      3,
+		MaxResults: 10000, //1000
+		MaxErrors:  5000,  //500
 		Url:        "https://telegram.org",
 		Timeout:    10,
 	}
-	var cr Crawler
+
 	var r Requester
+	var cr Crawler
 
 	r = NewRequester(time.Duration(cfg.Timeout) * time.Second)
 	cr = NewCrawler(r)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(cfg.Timeout)) //общий таймаут
 
-	go cr.Scan(ctx, &cfg)                  //Запускаем краулер в отдельной рутине
+	go cr.Scan(ctx, cfg.Url, cfg.Depth)    //Запускаем краулер в отдельной рутине
 	go processResult(ctx, cancel, cr, cfg) //Обрабатываем результаты в отдельной рутине
 
 	sigCh := make(chan os.Signal, 1)                      //Создаем канал для приема сигналов
@@ -204,11 +202,16 @@ func main() {
 			case syscall.SIGINT:
 				cancel()
 			case syscall.SIGUSR1:
-				atomic.AddInt64(&cfg.DopDepth, 2) // безопасно увеличиваем глубину по сигналу
+				cr.AddDepth(cfg.Depth)
+				log.Println("depth was increased")
 			}
 		}
 	}
 
+}
+
+func (c *crawler) AddDepth(depth int64) {
+	atomic.AddInt64(&c.maxDepth, depth+2)
 }
 
 func processResult(ctx context.Context, cancel func(), cr Crawler, cfg Config) {
