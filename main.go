@@ -210,6 +210,7 @@ func main() {
 
 }
 
+//получаем максимально возможную глубину
 func (c *crawler) AddDepth(depth int64) {
 	atomic.AddInt64(&c.maxDepth, depth+2)
 }
