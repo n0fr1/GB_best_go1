@@ -33,12 +33,15 @@ type page struct {
 func NewPage(raw io.Reader) (Page, error) {
 	doc, err := goquery.NewDocumentFromReader(raw)
 	if err != nil {
+		log.WithFields(log.Fields{"doc": doc}).Error(err)
 		return nil, err
 	}
 	return &page{doc: doc}, nil
 }
 
 func (p *page) GetTitle() string {
+	title := p.doc.Find("title").First().Text()
+	log.WithFields(log.Fields{"title": title}).Info("Got title")
 	return p.doc.Find("title").First().Text()
 }
 
@@ -50,6 +53,8 @@ func (p *page) GetLinks() []string {
 			urls = append(urls, url)
 		}
 	})
+
+	log.WithFields(log.Fields{"links": urls}).Info("Got links")
 	return urls
 }
 
@@ -76,15 +81,18 @@ func (r requester) Get(ctx context.Context, url string) (Page, error) {
 		}
 		req, err := http.NewRequest("GET", url, nil)
 		if err != nil {
+			log.WithFields(log.Fields{"url": url}).Error(err)
 			return nil, err
 		}
 		body, err := cl.Do(req)
 		if err != nil {
+			log.WithFields(log.Fields{"body": body}).Error(err)
 			return nil, err
 		}
 		defer body.Body.Close()
 		page, err := NewPage(body.Body)
 		if err != nil {
+			log.WithFields(log.Fields{"page": page}).Error(err)
 			return nil, err
 		}
 		return page, nil
@@ -122,6 +130,7 @@ func (c *crawler) Scan(ctx context.Context, url string, depth int64) {
 
 	c.mu.RLock()
 	if depth > c.maxDepth {
+		log.WithFields(log.Fields{"maxDepth": c.maxDepth}).Info("max depth was achieved")
 		return
 	}
 	_, ok := c.visited[url] //Проверяем, что мы ещё не смотрели эту страницу
@@ -138,6 +147,7 @@ func (c *crawler) Scan(ctx context.Context, url string, depth int64) {
 		page, err := c.r.Get(ctx, url) //Запрашиваем страницу через Requester
 		if err != nil {
 			c.res <- CrawlResult{Err: err} //Записываем ошибку в канал
+			log.WithFields(log.Fields{"url": url}).Error(err)
 			return
 		}
 		c.mu.Lock()
@@ -172,7 +182,7 @@ type Config struct {
 func init() {
 	log.SetFormatter(&log.JSONFormatter{})
 	log.SetOutput(os.Stdout)
-	log.SetLevel(log.InfoLevel)
+	log.SetLevel(log.DebugLevel)
 }
 
 func main() {
@@ -191,7 +201,10 @@ func main() {
 	var cr Crawler
 
 	r = NewRequester(time.Duration(cfg.Timeout) * time.Second)
+	log.WithFields(log.Fields{"request": r}).Debug()
+
 	cr = NewCrawler(r, cfg.MaxDepth)
+	log.WithFields(log.Fields{"crawler": cr}).Debug()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(cfg.Timeout)) //общий таймаут
 
@@ -209,6 +222,7 @@ func main() {
 			switch s {
 			case syscall.SIGINT:
 				cancel()
+				log.WithFields(log.Fields{}).Info("crawler aborted")
 			case syscall.SIGUSR1:
 				cr.AddDepth(cfg.Add)
 				log.WithFields(log.Fields{
@@ -238,14 +252,14 @@ func processResult(ctx context.Context, cancel func(), cr Crawler, cfg Config) {
 		case msg := <-cr.ChanResult():
 			if msg.Err != nil {
 				maxErrors--
-				log.Printf("crawler result return err: %s\n", msg.Err.Error())
+				log.WithFields(log.Fields{"err": msg.Err.Error()}).Errorf("crawler result return err")
 				if maxErrors <= 0 {
 					cancel()
 					return
 				}
 			} else {
 				maxResult--
-				log.Printf("crawler result: [url: %s] Title: %s\n", msg.Url, msg.Title)
+				log.WithFields(log.Fields{"title": msg.Title, "url": msg.Url}).Info("crawler result")
 				if maxResult <= 0 {
 					cancel()
 					return
