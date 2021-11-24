@@ -96,7 +96,7 @@ func (r requester) Get(ctx context.Context, url string) (Page, error) {
 type Crawler interface {
 	Scan(ctx context.Context, url string, depth int64)
 	ChanResult() <-chan CrawlResult
-	AddDepth(depth int64) //добавляем дополнительный метод для увеличения глубины поиска
+	AddDepth(add int64) //добавляем дополнительный метод для увеличения глубины поиска
 }
 
 type crawler struct {
@@ -107,28 +107,23 @@ type crawler struct {
 	maxDepth int64
 }
 
-func NewCrawler(r Requester) *crawler {
+func NewCrawler(r Requester, maxDepth int64) *crawler {
 
 	return &crawler{
 		r:        r,
 		res:      make(chan CrawlResult),
 		visited:  make(map[string]struct{}),
 		mu:       sync.RWMutex{},
-		maxDepth: 0,
+		maxDepth: maxDepth,
 	}
 }
 
 func (c *crawler) Scan(ctx context.Context, url string, depth int64) {
 
 	c.mu.RLock()
-	if c.maxDepth > 0 {
-		if depth >= c.maxDepth {
-			return
-		}
+	if depth > c.maxDepth {
+		return
 	}
-	c.mu.RUnlock()
-
-	c.mu.RLock()
 	_, ok := c.visited[url] //Проверяем, что мы ещё не смотрели эту страницу
 	c.mu.RUnlock()
 	if ok {
@@ -164,7 +159,9 @@ func (c *crawler) ChanResult() <-chan CrawlResult {
 
 //Config - структура для конфигурации
 type Config struct {
+	Add        int64
 	Depth      int64
+	MaxDepth   int64
 	MaxResults int
 	MaxErrors  int
 	Url        string
@@ -174,7 +171,9 @@ type Config struct {
 func main() {
 
 	cfg := Config{
-		Depth:      3,
+		Add:        2,
+		Depth:      0,
+		MaxDepth:   3,
 		MaxResults: 10000, //1000
 		MaxErrors:  5000,  //500
 		Url:        "https://telegram.org",
@@ -185,7 +184,7 @@ func main() {
 	var cr Crawler
 
 	r = NewRequester(time.Duration(cfg.Timeout) * time.Second)
-	cr = NewCrawler(r)
+	cr = NewCrawler(r, cfg.MaxDepth)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(cfg.Timeout)) //общий таймаут
 
@@ -204,7 +203,7 @@ func main() {
 			case syscall.SIGINT:
 				cancel()
 			case syscall.SIGUSR1:
-				cr.AddDepth(cfg.Depth)
+				cr.AddDepth(cfg.Add)
 				log.Println("depth was increased")
 			}
 		}
@@ -213,8 +212,8 @@ func main() {
 }
 
 //получаем максимально возможную глубину
-func (c *crawler) AddDepth(depth int64) {
-	atomic.AddInt64(&c.maxDepth, depth+2)
+func (c *crawler) AddDepth(add int64) {
+	atomic.AddInt64(&c.maxDepth, add)
 }
 
 func processResult(ctx context.Context, cancel func(), cr Crawler, cfg Config) {
