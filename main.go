@@ -183,7 +183,6 @@ func init() {
 
 	log.SetFormatter(&log.JSONFormatter{})
 	log.SetOutput(os.Stdout)
-	log.SetLevel(log.DebugLevel)
 }
 
 func main() {
@@ -202,10 +201,8 @@ func main() {
 	var cr Crawler
 
 	r = NewRequester(time.Duration(cfg.Timeout) * time.Second)
-	log.WithFields(log.Fields{"request": r}).Debug()
 
 	cr = NewCrawler(r, cfg.MaxDepth)
-	log.WithFields(log.Fields{"crawler": cr}).Debug()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(cfg.Timeout)) //общий таймаут
 
