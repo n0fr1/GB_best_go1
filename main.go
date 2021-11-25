@@ -86,13 +86,13 @@ func (r requester) Get(ctx context.Context, url string) (Page, error) {
 		}
 		body, err := cl.Do(req)
 		if err != nil {
-			log.WithFields(log.Fields{"body": body}).Error(err)
+			log.WithFields(log.Fields{"err": err}).Errorf("It's not a body")
 			return nil, err
 		}
 		defer body.Body.Close()
 		page, err := NewPage(body.Body)
 		if err != nil {
-			log.WithFields(log.Fields{"page": page}).Error(err)
+			log.WithFields(log.Fields{}).Error(err)
 			return nil, err
 		}
 		return page, nil
@@ -130,7 +130,7 @@ func (c *crawler) Scan(ctx context.Context, url string, depth int64) {
 
 	c.mu.RLock()
 	if depth > c.maxDepth {
-		log.WithFields(log.Fields{"maxDepth": c.maxDepth}).Info("max depth was achieved")
+		log.WithFields(log.Fields{"maxDepth": c.maxDepth}).Warn("max depth was achieved")
 		return
 	}
 	_, ok := c.visited[url] //Проверяем, что мы ещё не смотрели эту страницу
@@ -180,9 +180,9 @@ type Config struct {
 }
 
 func init() {
+
 	log.SetFormatter(&log.JSONFormatter{})
 	log.SetOutput(os.Stdout)
-	log.SetLevel(log.DebugLevel)
 }
 
 func main() {
@@ -201,10 +201,8 @@ func main() {
 	var cr Crawler
 
 	r = NewRequester(time.Duration(cfg.Timeout) * time.Second)
-	log.WithFields(log.Fields{"request": r}).Debug()
 
 	cr = NewCrawler(r, cfg.MaxDepth)
-	log.WithFields(log.Fields{"crawler": cr}).Debug()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(cfg.Timeout)) //общий таймаут
 
