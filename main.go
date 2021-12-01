@@ -130,7 +130,6 @@ func (c *crawler) Scan(ctx context.Context, url string, depth int64) {
 
 	c.mu.RLock()
 	if depth > c.maxDepth {
-		log.WithFields(log.Fields{"func": "(crawler)Scan", "maxDepth": c.maxDepth}).Panicf("max depth was achieved")
 		return
 	}
 	_, ok := c.visited[url] //Проверяем, что мы ещё не смотрели эту страницу
@@ -179,12 +178,6 @@ type Config struct {
 	Timeout    int //in seconds
 }
 
-func init() {
-
-	log.SetFormatter(&log.JSONFormatter{})
-	log.SetOutput(os.Stdout)
-}
-
 func main() {
 
 	cfg := Config{
@@ -227,7 +220,7 @@ func main() {
 					"func":  "main",
 					"add":   cfg.Add,
 					"depth": cfg.MaxDepth,
-				}).Warn("The depth was increased")
+				}).Info("The depth was increased")
 
 			}
 		}
