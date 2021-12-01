@@ -179,12 +179,6 @@ type Config struct {
 	Timeout    int //in seconds
 }
 
-func init() {
-
-	log.SetFormatter(&log.JSONFormatter{})
-	log.SetOutput(os.Stdout)
-}
-
 func main() {
 
 	cfg := Config{
@@ -227,7 +221,7 @@ func main() {
 					"func":  "main",
 					"add":   cfg.Add,
 					"depth": cfg.MaxDepth,
-				}).Warn("The depth was increased")
+				}).Info("The depth was increased")
 
 			}
 		}
