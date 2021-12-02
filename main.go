@@ -42,7 +42,7 @@ func NewPage(raw io.Reader) (Page, error) {
 func (p *page) GetTitle() string {
 	title := p.doc.Find("title").First().Text()
 	log.WithFields(log.Fields{"func": "(page)GetTitle", "title": title}).Info("Got title")
-	return p.doc.Find("title").First().Text()
+	return title
 }
 
 func (p *page) GetLinks() []string {
